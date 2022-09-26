@@ -120,6 +120,12 @@ contract DEX {
     function tokenToEth(uint256 tokenInput) public returns (uint256 ethOutput) {
         require(tokenInput > 0, "cannot swap 0 tokens");
         uint256 token_reserve = token.balanceOf(address(this));
+        uint256 allowance = token.allowance(msg.sender, address(this));
+        require(
+            allowance >= tokenInput,
+            "tokenToEth(): token allowance too low"
+        );
+
         uint256 ethOutput = price(
             tokenInput,
             token_reserve,
@@ -133,5 +139,31 @@ contract DEX {
         require(sent, "tokenToEth: revert in transferring eth to you!");
         emit TokenToEthSwap(msg.sender, "ERC20 to ETH", ethOutput, tokenInput);
         return ethOutput;
+    }
+
+    /**
+     * @notice allows deposits of ERC20 and $ETH to liquidity pool
+     * NOTE: parameter is the msg.value sent with this function call. That amount is used to determine the amount of tokens needed as well and taken from the depositor.
+     * NOTE: user has to make sure to give DEX approval to spend their tokens on their behalf by calling approve function prior to this function call.
+     * NOTE: Equal parts of both assets will be removed from the user's wallet with respect to the price outlined by the AMM.
+     */
+    function deposit() public payable returns (uint256 tokensDeposited) {
+        uint256 ethReserve = address(this).balance.sub(msg.value);
+        uint256 tokenReserve = token.balanceOf(address(this));
+        uint256 tokenDeposit;
+
+        tokenDeposit = (msg.value.mul(tokenReserve) / ethReserve).add(1);
+        uint256 liquidityMinted = msg.value.mul(totalLiquidity) / ethReserve;
+        liquidity[msg.sender] = liquidity[msg.sender].add(liquidityMinted);
+        totalLiquidity = totalLiquidity.add(liquidityMinted);
+
+        require(token.transferFrom(msg.sender, address(this), tokenDeposit));
+        emit LiquidityProvided(
+            msg.sender,
+            liquidityMinted,
+            msg.value,
+            tokenDeposit
+        );
+        return tokenDeposit;
     }
 }
